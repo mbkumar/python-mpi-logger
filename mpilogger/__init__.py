@@ -1,10 +1,8 @@
-
 import sys
 import time
 import logging
 import array
 import atexit
-from distutils.version import LooseVersion
 
 import mpi4py
 from mpi4py import MPI
@@ -30,7 +28,6 @@ def _destroy_log_comm():
 
 # Internal variable for keeping track of the log communicators.
 _log_comm_list = []
-
 
 
 class MPILogHandler(logging.Handler):
@@ -59,7 +56,7 @@ class MPILogHandler(logging.Handler):
             MPI communicator used by this logger.
         """
 
-        super(MPILogHandler, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         self._logfile = logfile
 
@@ -103,7 +100,7 @@ class MPILogHandler(logging.Handler):
             if len(msg) > _message_maxlen:
                 msg = msg[:_message_maxlen]
 
-            msg_buf = array.array('c', msg)
+            msg_buf = array.array('b', msg.encode())
 
             # Send message to the logging process
             self._request = self._log_comm.Issend([msg_buf, MPI.CHAR], dest=0, tag=0)
@@ -133,7 +130,7 @@ if __name__ == '__main__':
     comm_parent = MPI.Comm.Get_parent()
 
     # Initialise all the buffers to receive logging messages
-    buffers = [(array.array('c', '\0') * _message_maxlen) for pi in range(comm_parent.remote_size)]
+    buffers = [(array.array('b', '\0'.encode()) * _message_maxlen) for pi in range(comm_parent.remote_size)]
     requests = []
 
     # Create a request for checking if we should exit
@@ -150,11 +147,7 @@ if __name__ == '__main__':
         status_list = []
         ind_requests = MPI.Request.Testsome(requests, statuses=status_list)
         # Request.Waitsome() and Request.Testsome() return None or list from mpi4py 2.0.0
-        if LooseVersion(mpi4py.__version__) >= LooseVersion('2.0.0'):
-            num_requests = len(ind_requests)
-        # older version of mpi4py
-        else:
-            num_requests, ind_requests = ind_requests
+        num_requests = len(ind_requests)
 
         # If a request has changed
         if num_requests > 0:
@@ -168,12 +161,12 @@ if __name__ == '__main__':
             
                 # Write the message to disk
                 msg_rank = s.Get_source()
-                msg = buffers[msg_rank].tostring().rstrip('\0')
+                msg = buffers[msg_rank].tobytes().decode().rstrip('\0')
                 fh.write('%s\n' % msg)
                 fh.flush()
 
                 # Replace the buffer and connection
-                buffers[ind] = (array.array('c', '\0') * _message_maxlen)
+                buffers[ind] = (array.array('b', '\0'.encode()) * _message_maxlen)
                 requests[ind] = comm_parent.Irecv([buffers[ind], MPI.CHAR], source=msg_rank, tag=0)
            
         if MPI.Request.Test(exit_request):
